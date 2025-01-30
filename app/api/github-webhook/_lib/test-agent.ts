@@ -152,6 +152,8 @@ async function generateTestsForChanges(
   const prompt = `
 You are an expert software developer specializing in writing tests for a Next.js codebase.
 
+Remember - you only generate tests for front-end code. This includes things like React components, pages, hooks, etc. You do not generate tests for back-end code. This includes things like API routes, database models, etc.
+
 Rules for naming test files:
 1) If a file is a React component (client or server) or a Next.js page, the test filename MUST end in ".test.tsx".
 2) If the file is purely back-end or non-React, use ".test.ts".
