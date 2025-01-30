@@ -67,9 +67,20 @@ async function generateTestsForChanges(
   context: PullRequestContextWithTests
 ): Promise<TestProposal[]> {
   const { title, changedFiles, commitMessages, existingTestFiles } = context
+
   const existingTestsPrompt = existingTestFiles
     .map(f => `Existing test file: ${f.filename}\n---\n${f.content}\n---\n`)
     .join("\n")
+
+  const changedFilesPrompt = changedFiles
+    .map(file => {
+      if (file.excluded) {
+        return `File: ${file.filename}\nStatus: ${file.status}\n[EXCLUDED FROM PROMPT]\n`
+      }
+      return `File: ${file.filename}\nStatus: ${file.status}\nPatch:\n${file.patch}\nCurrent Content:\n${file.content ?? "N/A"}\n`
+    })
+    .join("\n---\n")
+
   const prompt = `
 You are an expert software developer specializing in writing tests for a Next.js codebase.
 
@@ -84,22 +95,11 @@ Title: ${title}
 Commits:
 ${commitMessages.map(m => `- ${m}`).join("\n")}
 Changed Files:
-${changedFiles
-  .map(
-    file => `
-File: ${file.filename}
-Status: ${file.status}
-Patch:
-${file.patch}
-Current Content:
-${file.content ?? "N/A"}
-`
-  )
-  .join("\n---\n")}
+${changedFilesPrompt}
 Existing Tests:
 ${existingTestsPrompt}
 
-Return valid XML:
+Return ONLY valid XML in the following structure (no extra commentary):
 <tests>
   <testProposals>
     <proposal>

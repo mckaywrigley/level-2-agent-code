@@ -6,6 +6,13 @@ This file contains functions for handling GitHub webhook events.
 
 import { getFileContent, octokit } from "./github"
 
+const SIZE_THRESHOLD = 10000
+const EXCLUDE_PATTERNS = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
+
+function shouldExcludeFile(filename: string): boolean {
+  return EXCLUDE_PATTERNS.some(pattern => filename.endsWith(pattern))
+}
+
 export interface PullRequestContext {
   owner: string
   repo: string
@@ -20,6 +27,7 @@ export interface PullRequestContext {
     additions: number
     deletions: number
     content?: string
+    excluded?: boolean
   }[]
   commitMessages: string[]
 }
@@ -49,18 +57,33 @@ export async function handlePullRequestBase(
 
   const changedFiles = await Promise.all(
     filesRes.data.map(async file => {
-      let content: string | undefined
-      if (file.status !== "removed") {
-        content = await getFileContent(owner, repo, file.filename, headRef)
-      }
-      return {
+      const fileObj = {
         filename: file.filename,
         patch: file.patch ?? "",
         status: file.status,
         additions: file.additions,
         deletions: file.deletions,
-        content
+        content: undefined as string | undefined,
+        excluded: false
       }
+
+      if (file.status !== "removed" && !shouldExcludeFile(file.filename)) {
+        const fileContent = await getFileContent(
+          owner,
+          repo,
+          file.filename,
+          headRef
+        )
+        if (fileContent && fileContent.length <= SIZE_THRESHOLD) {
+          fileObj.content = fileContent
+        } else {
+          fileObj.excluded = true
+        }
+      } else {
+        fileObj.excluded = true
+      }
+
+      return fileObj
     })
   )
 

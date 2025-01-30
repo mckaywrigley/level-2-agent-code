@@ -86,29 +86,25 @@ ${analysis.overallSuggestions.map((s: string) => `- ${s}`).join("\n")}
 async function generateReview(context: PullRequestContext) {
   const { title, changedFiles, commitMessages } = context
 
+  const changedFilesPrompt = changedFiles
+    .map(file => {
+      if (file.excluded) {
+        return `File: ${file.filename}\nStatus: ${file.status}\n[EXCLUDED FROM PROMPT]\n`
+      }
+      return `File: ${file.filename}\nStatus: ${file.status}\nPatch (diff):\n${file.patch}\nCurrent Content:\n${file.content ?? "N/A"}\n`
+    })
+    .join("\n---\n")
+
   const prompt = `
 You are an expert code reviewer. Provide feedback on the following pull request changes in clear, concise paragraphs. 
 Do not use code blocks for regular text. Format any suggestions as single-line bullet points.
 
 PR Title: ${title}
-
 Commit Messages:
 ${commitMessages.map(msg => `- ${msg}`).join("\n")}
-
 Changed Files:
-${changedFiles
-  .map(
-    file => `
-File: ${file.filename}
-Status: ${file.status}
-Patch (diff):
-${file.patch}
+${changedFilesPrompt}
 
-Current Content:
-${file.content ?? "N/A"}
-`
-  )
-  .join("\n---\n")}
 
 Return ONLY valid XML in the following structure (no extra commentary):
 <review>
@@ -123,6 +119,8 @@ Return ONLY valid XML in the following structure (no extra commentary):
     <suggestion>[single bullet suggestion]</suggestion>
   </overallSuggestions>
 </review>
+
+ONLY return the <review> XML with the summary, fileAnalyses, and overallSuggestions. Do not add extra commentary.
 `
 
   try {
