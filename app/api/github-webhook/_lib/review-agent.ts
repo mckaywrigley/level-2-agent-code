@@ -8,8 +8,7 @@ import { createOpenAI } from "@ai-sdk/openai"
 import { generateText } from "ai"
 import { parseStringPromise } from "xml2js"
 import { createPlaceholderComment, updateComment } from "./comments"
-import { octokit } from "./github"
-import { PullRequestContext } from "./handlers"
+import { PullRequestContext, removeLabel } from "./handlers"
 
 const REVIEW_LABEL = "agent-review"
 
@@ -162,19 +161,8 @@ export async function handleReviewAgent(context: PullRequestContext) {
     )
 
     const analysis = await generateReview(context)
-
     await updateCommentWithReview(owner, repo, commentId, await analysis)
-
-    try {
-      await octokit.issues.removeLabel({
-        owner,
-        repo,
-        issue_number: pullNumber,
-        name: REVIEW_LABEL
-      })
-    } catch (labelError) {
-      console.warn("Failed to remove review label:", labelError)
-    }
+    await removeLabel(owner, repo, pullNumber, REVIEW_LABEL)
   } catch (err) {
     console.error("Error in handleReviewAgent:", err)
     if (typeof commentId !== "undefined") {

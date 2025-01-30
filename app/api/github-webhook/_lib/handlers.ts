@@ -142,3 +142,23 @@ export async function handlePullRequestForTestAgent(
     existingTestFiles
   }
 }
+
+export async function removeLabel(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  label: string
+) {
+  try {
+    await octokit.issues.removeLabel({
+      owner,
+      repo,
+      issue_number: issueNumber,
+      name: label
+    })
+  } catch (error: any) {
+    if (error.status !== 404) {
+      console.error(`Error removing label ${label}:`, error)
+    }
+  }
+}

@@ -10,7 +10,11 @@ import { parseStringPromise } from "xml2js"
 import { z } from "zod"
 import { createPlaceholderComment, updateComment } from "./comments"
 import { octokit } from "./github"
-import { PullRequestContext, PullRequestContextWithTests } from "./handlers"
+import {
+  PullRequestContext,
+  PullRequestContextWithTests,
+  removeLabel
+} from "./handlers"
 
 interface TestProposal {
   filename: string
@@ -315,17 +319,7 @@ export async function handleTestGeneration(
       headRef,
       testProposals
     )
-
-    try {
-      await octokit.issues.removeLabel({
-        owner,
-        repo,
-        issue_number: pullNumber,
-        name: TEST_GENERATION_LABEL
-      })
-    } catch (labelError) {
-      console.warn("Failed to remove label:", labelError)
-    }
+    await removeLabel(owner, repo, pullNumber, TEST_GENERATION_LABEL)
   } catch (err) {
     console.error("Error in handleTestGeneration:", err)
     if (typeof commentId !== "undefined") {
