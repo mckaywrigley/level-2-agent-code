@@ -4,7 +4,6 @@ This file contains functions for generating and committing tests to a GitHub PR.
 </ai_context>
 */
 
-import { createOpenAI } from "@ai-sdk/openai"
 import { generateText } from "ai"
 import { parseStringPromise } from "xml2js"
 import { createPlaceholderComment, updateComment } from "./comments"
@@ -12,11 +11,6 @@ import { PullRequestContext, removeLabel } from "./handlers"
 import { getLLMModel } from "./llm"
 
 export const REVIEW_LABEL = "agent-review-pr"
-
-const openai = createOpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-  compatibility: "strict"
-})
 
 async function parseReviewXml(xmlText: string) {
   try {

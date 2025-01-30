@@ -4,7 +4,6 @@ This file contains functions for generating and committing tests to a GitHub PR.
 </ai_context>
 */
 
-import { createOpenAI } from "@ai-sdk/openai"
 import { generateObject, generateText } from "ai"
 import { parseStringPromise } from "xml2js"
 import { z } from "zod"
@@ -28,65 +27,52 @@ export const TEST_GENERATION_LABEL = "agent-generate-tests"
 const gatingSchema = z.object({
   decision: z.object({
     shouldGenerateTests: z.boolean(),
-    reasoning: z.string()
+    reasoning: z.string(),
+    recommendation: z.string().optional()
   })
 })
 
-const openai = createOpenAI({
-  apiKey: process.env.OPENAI_API_KEY!,
-  compatibility: "strict"
-})
-
 async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
-  try {
-    const startTag = "<tests>"
-    const endTag = "</tests>"
-    const startIndex = xmlText.indexOf(startTag)
-    const endIndex = xmlText.indexOf(endTag) + endTag.length
-    if (startIndex === -1 || endIndex === -1) return []
-    const xmlPortion = xmlText.slice(startIndex, endIndex)
-    const parsed = await parseStringPromise(xmlPortion)
-    const proposals: TestProposal[] = []
-    const root = parsed.tests
-    if (!root?.testProposals) return []
-    const testProposalsArr = root.testProposals[0].proposal
-    if (!Array.isArray(testProposalsArr)) return []
-
-    for (const item of testProposalsArr) {
-      const filename = item.filename?.[0] ?? ""
-      const testType = item.testType?.[0] ?? ""
-      const testContent = item.testContent?.[0] ?? ""
-
-      const actionNode = item.actions?.[0]
-      let action: "create" | "update" | "rename" = "create"
-      let oldFilename: string | undefined
-
-      if (actionNode?.action?.[0]) {
-        const raw = actionNode.action[0]
-        if (raw === "update" || raw === "rename" || raw === "create") {
-          action = raw
-        }
+  const startTag = "<tests>"
+  const endTag = "</tests>"
+  const startIndex = xmlText.indexOf(startTag)
+  const endIndex = xmlText.indexOf(endTag) + endTag.length
+  if (startIndex === -1 || endIndex === -1) return []
+  const xmlPortion = xmlText.slice(startIndex, endIndex)
+  const parsed = await parseStringPromise(xmlPortion)
+  const proposals: TestProposal[] = []
+  const root = parsed.tests
+  if (!root?.testProposals) return []
+  const testProposalsArr = root.testProposals[0].proposal
+  if (!Array.isArray(testProposalsArr)) return []
+  for (const item of testProposalsArr) {
+    const filename = item.filename?.[0] ?? ""
+    const testType = item.testType?.[0] ?? ""
+    const testContent = item.testContent?.[0] ?? ""
+    const actionNode = item.actions?.[0]
+    let action: "create" | "update" | "rename" = "create"
+    let oldFilename: string | undefined
+    if (actionNode?.action?.[0]) {
+      const raw = actionNode.action[0]
+      if (raw === "update" || raw === "rename" || raw === "create") {
+        action = raw
       }
-      if (actionNode?.oldFilename?.[0]) {
-        oldFilename = actionNode.oldFilename[0]
-      }
-
-      if (!filename || !testContent) continue
-
-      proposals.push({
-        filename,
-        testType: testType === "e2e" ? "e2e" : "unit",
-        testContent,
-        actions: {
-          action,
-          oldFilename
-        }
-      })
     }
-    return proposals
-  } catch {
-    return []
+    if (actionNode?.oldFilename?.[0]) {
+      oldFilename = actionNode.oldFilename[0]
+    }
+    if (!filename || !testContent) continue
+    proposals.push({
+      filename,
+      testType: testType === "e2e" ? "e2e" : "unit",
+      testContent,
+      actions: {
+        action,
+        oldFilename
+      }
+    })
   }
+  return proposals
 }
 
 function finalizeTestProposals(
@@ -96,7 +82,6 @@ function finalizeTestProposals(
   return proposals.map(proposal => {
     const reactRelated = changedFiles.some(file => {
       if (!file.content) return false
-      // Quick check for Next/React
       return (
         file.filename ===
           proposal.filename
@@ -107,10 +92,9 @@ function finalizeTestProposals(
         file.filename.endsWith(".tsx") ||
         file.content.includes("import React") ||
         file.content.includes('from "react"') ||
-        file.filename.includes("app/") // or any other Next route check
+        file.filename.includes("app/")
       )
     })
-
     if (reactRelated) {
       if (!proposal.filename.endsWith(".test.tsx")) {
         proposal.filename = proposal.filename.replace(
@@ -126,13 +110,13 @@ function finalizeTestProposals(
         )
       }
     }
-
     return proposal
   })
 }
 
 async function generateTestsForChanges(
-  context: PullRequestContextWithTests
+  context: PullRequestContextWithTests,
+  recommendation?: string
 ): Promise<TestProposal[]> {
   const { title, changedFiles, commitMessages, existingTestFiles } = context
 
@@ -151,6 +135,10 @@ async function generateTestsForChanges(
 
   const prompt = `
 You are an expert software developer specializing in writing tests for a Next.js codebase.
+
+You may use the recommendation below and/or go beyond it.
+
+Recommendation: ${recommendation ?? ""}
 
 Remember - you only generate tests for front-end code. This includes things like React components, pages, hooks, etc. You do not generate tests for back-end code. This includes things like API routes, database models, etc.
 
@@ -219,7 +207,6 @@ async function commitTestsToExistingBranch(
     const action = proposal.actions?.action ?? "create"
     const oldFilename = proposal.actions?.oldFilename
 
-    // If the AI indicated a rename
     if (
       action === "rename" &&
       oldFilename &&
@@ -247,7 +234,6 @@ async function commitTestsToExistingBranch(
       }
     }
 
-    // Now either create or update the new file
     try {
       const { data: existingFile } = await octokit.repos.getContent({
         owner,
@@ -311,29 +297,42 @@ ${testList}
 }
 
 async function gatingStep(context: PullRequestContextWithTests) {
-  const { title, changedFiles, commitMessages } = context
+  const { title, changedFiles, commitMessages, existingTestFiles } = context
+
+  const existingTestsPrompt = existingTestFiles
+    .map(
+      f => `
+Existing test file: ${f.filename}
+---
+${f.content}
+---
+`
+    )
+    .join("\n")
+
+  const changedFilesPrompt = changedFiles
+    .map(file => {
+      if (file.excluded) {
+        return `File: ${file.filename}\nStatus: ${file.status}\n[EXCLUDED]\n`
+      }
+      return `File: ${file.filename}\nStatus: ${file.status}\nPatch:\n${file.patch}\nContent:\n${file.content ?? "N/A"}\n`
+    })
+    .join("\n---\n")
+
   const prompt = `
 You are an expert in deciding if front-end tests are needed for these changes.
 
 You have the PR title, commits, and file diffs/content. Only return the object in JSON format: {"decision":{"shouldGenerateTests":true or false,"reasoning":"some text"}}
 
-PR Title: ${title}
+Title: ${title}
 Commits:
 ${commitMessages.map(m => `- ${m}`).join("\n")}
 Changed Files:
-${changedFiles
-  .map(
-    file => `
-File: ${file.filename}
-Status: ${file.status}
-Patch:
-${file.patch}
-Content:
-${file.content ?? "N/A"}
+${changedFilesPrompt}
+Existing Tests:
+${existingTestsPrompt}
 `
-  )
-  .join("\n---\n")}
-`
+
   try {
     const model = getLLMModel()
     const result = await generateObject({
@@ -343,9 +342,11 @@ ${file.content ?? "N/A"}
       schemaDescription: "Decision for test generation",
       prompt
     })
+
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
-      reason: result.object.decision.reasoning
+      reason: result.object.decision.reasoning,
+      recommendation: result.object.decision.recommendation
     }
   } catch {
     return { shouldGenerate: false, reason: "Error in gating check" }
@@ -366,7 +367,7 @@ export async function handleTestGeneration(
       "🧪 AI Test Generation in progress..."
     )
 
-    const { shouldGenerate, reason } = await gatingStep(context)
+    const { shouldGenerate, reason, recommendation } = await gatingStep(context)
     if (!shouldGenerate) {
       await updateComment(
         owner,
@@ -377,7 +378,7 @@ export async function handleTestGeneration(
       return
     }
 
-    const testProposals = await generateTestsForChanges(context)
+    const testProposals = await generateTestsForChanges(context, recommendation)
     if (testProposals.length > 0) {
       await commitTestsToExistingBranch(owner, repo, headRef, testProposals)
     }
