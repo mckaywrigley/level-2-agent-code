@@ -109,6 +109,7 @@ ${f.content}
 
   const prompt = `
 You are an expert software developer specializing in writing tests for a Next.js codebase.
+
 We have two categories of tests:
 1) Unit tests (Jest + Testing Library), typically in __tests__/unit/.
 2) E2E tests (Playwright), typically in __tests__/e2e/.
@@ -174,6 +175,7 @@ Example:
 
 ONLY return the <tests> XML with proposals. Do not add extra commentary.
 `
+  console.log("prompt", prompt)
 
   try {
     const { text } = await generateText({
@@ -201,27 +203,53 @@ async function commitTestsToExistingBranch(
   branchName: string,
   proposals: TestProposal[]
 ) {
-  const { data: refData } = await octokit.git.getRef({
-    owner,
-    repo,
-    ref: `heads/${branchName}`
-  })
-  const latestCommitSha = refData.object.sha
-
   for (const proposal of proposals) {
-    const contentBase64 = Buffer.from(proposal.testContent, "utf8").toString(
-      "base64"
-    )
-
-    await octokit.repos.createOrUpdateFileContents({
+    const { data: refData } = await octokit.git.getRef({
       owner,
       repo,
-      path: proposal.filename,
-      message: `Add/Update tests: ${proposal.filename}`,
-      content: contentBase64,
-      branch: branchName,
-      sha: latestCommitSha
+      ref: `heads/${branchName}`
     })
+
+    try {
+      const { data: existingFile } = await octokit.repos.getContent({
+        owner,
+        repo,
+        path: proposal.filename,
+        ref: branchName
+      })
+
+      const contentBase64 = Buffer.from(proposal.testContent, "utf8").toString(
+        "base64"
+      )
+
+      await octokit.repos.createOrUpdateFileContents({
+        owner,
+        repo,
+        path: proposal.filename,
+        message: `Add/Update tests: ${proposal.filename}`,
+        content: contentBase64,
+        branch: branchName,
+        sha: "sha" in existingFile ? existingFile.sha : undefined
+      })
+    } catch (error: any) {
+      if (error.status === 404) {
+        const contentBase64 = Buffer.from(
+          proposal.testContent,
+          "utf8"
+        ).toString("base64")
+
+        await octokit.repos.createOrUpdateFileContents({
+          owner,
+          repo,
+          path: proposal.filename,
+          message: `Add/Update tests: ${proposal.filename}`,
+          content: contentBase64,
+          branch: branchName
+        })
+      } else {
+        throw error
+      }
+    }
   }
 }
 
@@ -268,7 +296,11 @@ ${changedFilesList}
 Analyze whether any of them warrant front-end tests. Provide a boolean (shouldGenerateTests) and a short reasoning.
 `
     })
-    console.log("result", JSON.stringify(result, null, 2))
+    console.log(
+      "shouldGenerateTests",
+      result.object.decision.shouldGenerateTests
+    )
+    console.log("reasoning", result.object.decision.reasoning)
 
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
