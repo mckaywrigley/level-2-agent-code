@@ -16,6 +16,10 @@ interface TestProposal {
   filename: string
   testType?: "unit" | "e2e"
   testContent: string
+  actions?: {
+    action: "create" | "update" | "rename"
+    oldFilename?: string
+  }
 }
 
 export const TEST_GENERATION_LABEL = "agent-generate-tests"
@@ -46,21 +50,84 @@ async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
     if (!root?.testProposals) return []
     const testProposalsArr = root.testProposals[0].proposal
     if (!Array.isArray(testProposalsArr)) return []
+
     for (const item of testProposalsArr) {
       const filename = item.filename?.[0] ?? ""
       const testType = item.testType?.[0] ?? ""
       const testContent = item.testContent?.[0] ?? ""
+
+      const actionNode = item.actions?.[0]
+      let action: "create" | "update" | "rename" = "create"
+      let oldFilename: string | undefined
+
+      if (actionNode?.action?.[0]) {
+        const raw = actionNode.action[0]
+        if (raw === "update" || raw === "rename" || raw === "create") {
+          action = raw
+        }
+      }
+      if (actionNode?.oldFilename?.[0]) {
+        oldFilename = actionNode.oldFilename[0]
+      }
+
       if (!filename || !testContent) continue
+
       proposals.push({
         filename,
         testType: testType === "e2e" ? "e2e" : "unit",
-        testContent
+        testContent,
+        actions: {
+          action,
+          oldFilename
+        }
       })
     }
     return proposals
   } catch {
     return []
   }
+}
+
+function finalizeTestProposals(
+  proposals: TestProposal[],
+  changedFiles: PullRequestContextWithTests["changedFiles"]
+): TestProposal[] {
+  return proposals.map(proposal => {
+    const reactRelated = changedFiles.some(file => {
+      if (!file.content) return false
+      // Quick check for Next/React
+      return (
+        file.filename ===
+          proposal.filename
+            .replace("__tests__/unit/", "")
+            .replace("__tests__/e2e/", "")
+            .replace(".test.tsx", "")
+            .replace(".test.ts", "") ||
+        file.filename.endsWith(".tsx") ||
+        file.content.includes("import React") ||
+        file.content.includes('from "react"') ||
+        file.filename.includes("app/") // or any other Next route check
+      )
+    })
+
+    if (reactRelated) {
+      if (!proposal.filename.endsWith(".test.tsx")) {
+        proposal.filename = proposal.filename.replace(
+          /\.test\.ts$/,
+          ".test.tsx"
+        )
+      }
+    } else {
+      if (!proposal.filename.endsWith(".test.ts")) {
+        proposal.filename = proposal.filename.replace(
+          /\.test\.tsx$/,
+          ".test.ts"
+        )
+      }
+    }
+
+    return proposal
+  })
 }
 
 async function generateTestsForChanges(
@@ -84,16 +151,20 @@ async function generateTestsForChanges(
   const prompt = `
 You are an expert software developer specializing in writing tests for a Next.js codebase.
 
-We have two categories of tests:
-1) Unit tests (Jest + Testing Library) in __tests__/unit/.
-2) E2E tests (Playwright) in __tests__/e2e/.
-
-If an existing test covers related functionality, update it instead of creating a new file. Return final content for each file you modify or create.
-If a React component is a Server Component, handle it asynchronously in tests. If it's a Client Component, test it normally.
-
-Important rule:
+Rules for naming test files:
 1) If a file is a React component (client or server) or a Next.js page, the test filename MUST end in ".test.tsx".
-2) If it is a purely back-end or non-React utility file, the test filename MUST end in ".test.ts".
+2) If the file is purely back-end or non-React, use ".test.ts".
+3) If an existing test file has the wrong extension, propose removing/renaming it.
+4) If updating an existing test file that has the correct name, just update it in place.
+
+We have two test categories:
+(1) Unit tests (Jest + Testing Library) in \`__tests__/unit/\`
+(2) E2E tests (Playwright) in \`__tests__/e2e/\`
+
+If an existing test already covers related functionality, prefer updating it rather than creating a new file. Return final content for each file you modify or create.
+
+Other rules:
+- If a React component is a Server Component, handle it asynchronously in tests. If it's a Client Component, test it normally.
 
 Title: ${title}
 Commits:
@@ -103,28 +174,32 @@ ${changedFilesPrompt}
 Existing Tests:
 ${existingTestsPrompt}
 
-Return ONLY valid XML in the following structure (no extra commentary):
+Return ONLY valid XML in the following structure:
 <tests>
   <testProposals>
     <proposal>
-      <filename>...</filename>
-      <testType>...</testType>
+      <filename>__tests__/unit/... .test.ts[x]</filename>
+      <testType>unit or e2e</testType>
       <testContent>...</testContent>
+      <actions>
+        <action>create</action> OR <action>update</action> OR <action>rename</action>
+        <!-- if rename -->
+        <oldFilename>__tests__/unit/... .test.ts</oldFilename>
+      </actions>
     </proposal>
   </testProposals>
 </tests>
 
 ONLY return the <tests> XML with proposals. Do not add extra commentary.
 `
-  console.log("prompt", prompt)
 
   try {
     const { text } = await generateText({
       model: openai("o1"),
       prompt
     })
-    console.log("text", text)
-    return await parseTestXml(text)
+    const rawProposals = await parseTestXml(text)
+    return finalizeTestProposals(rawProposals, changedFiles)
   } catch {
     return []
   }
@@ -137,11 +212,38 @@ async function commitTestsToExistingBranch(
   proposals: TestProposal[]
 ) {
   for (const proposal of proposals) {
-    const { data: refData } = await octokit.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${branchName}`
-    })
+    const action = proposal.actions?.action ?? "create"
+    const oldFilename = proposal.actions?.oldFilename
+
+    // If the AI indicated a rename
+    if (
+      action === "rename" &&
+      oldFilename &&
+      oldFilename !== proposal.filename
+    ) {
+      try {
+        const { data: oldFile } = await octokit.repos.getContent({
+          owner,
+          repo,
+          path: oldFilename,
+          ref: branchName
+        })
+        if ("sha" in oldFile) {
+          await octokit.repos.deleteFile({
+            owner,
+            repo,
+            path: oldFilename,
+            message: `Rename ${oldFilename} to ${proposal.filename}`,
+            branch: branchName,
+            sha: oldFile.sha
+          })
+        }
+      } catch (err: any) {
+        if (err.status !== 404) throw err
+      }
+    }
+
+    // Now either create or update the new file
     try {
       const { data: existingFile } = await octokit.repos.getContent({
         owner,
@@ -152,6 +254,7 @@ async function commitTestsToExistingBranch(
       const contentBase64 = Buffer.from(proposal.testContent, "utf8").toString(
         "base64"
       )
+
       await octokit.repos.createOrUpdateFileContents({
         owner,
         repo,
@@ -227,8 +330,6 @@ ${file.content ?? "N/A"}
   )
   .join("\n---\n")}
 `
-  console.log("prompt", prompt)
-
   try {
     const result = await generateObject({
       model: openai("o1", { structuredOutputs: true }),
@@ -237,12 +338,6 @@ ${file.content ?? "N/A"}
       schemaDescription: "Decision for test generation",
       prompt
     })
-
-    console.log(
-      "shouldGenerateTests",
-      result.object.decision.shouldGenerateTests
-    )
-    console.log("reasoning", result.object.decision.reasoning)
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
       reason: result.object.decision.reasoning
@@ -257,6 +352,7 @@ export async function handleTestGeneration(
 ) {
   const { owner, repo, pullNumber, headRef } = context
   let commentId: number | undefined
+
   try {
     commentId = await createPlaceholderComment(
       owner,
@@ -264,6 +360,7 @@ export async function handleTestGeneration(
       pullNumber,
       "🧪 AI Test Generation in progress..."
     )
+
     const { shouldGenerate, reason } = await gatingStep(context)
     if (!shouldGenerate) {
       await updateComment(
@@ -274,10 +371,12 @@ export async function handleTestGeneration(
       )
       return
     }
+
     const testProposals = await generateTestsForChanges(context)
     if (testProposals.length > 0) {
       await commitTestsToExistingBranch(owner, repo, headRef, testProposals)
     }
+
     await updateCommentWithResults(
       owner,
       repo,
