@@ -268,6 +268,7 @@ ${changedFilesList}
 Analyze whether any of them warrant front-end tests. Provide a boolean (shouldGenerateTests) and a short reasoning.
 `
     })
+    console.log("result", JSON.stringify(result, null, 2))
 
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
