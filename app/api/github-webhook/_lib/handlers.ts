@@ -6,7 +6,7 @@ This file contains functions for handling GitHub webhook events.
 
 import { getFileContent, octokit } from "./github"
 
-const SIZE_THRESHOLD = 10000
+const SIZE_THRESHOLD = 32000
 const EXCLUDE_PATTERNS = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
 
 function shouldExcludeFile(filename: string): boolean {
