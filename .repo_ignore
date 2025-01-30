@@ -34,4 +34,6 @@
 **/.husky
 **/prompts
 **/migrations
+**/.next
+**/.swc
 **/public
