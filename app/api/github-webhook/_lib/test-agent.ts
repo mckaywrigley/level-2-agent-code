@@ -10,17 +10,15 @@ import { parseStringPromise } from "xml2js"
 import { z } from "zod"
 import { createPlaceholderComment, updateComment } from "./comments"
 import { octokit } from "./github"
-import {
-  PullRequestContext,
-  PullRequestContextWithTests,
-  removeLabel
-} from "./handlers"
+import { PullRequestContextWithTests, removeLabel } from "./handlers"
 
 interface TestProposal {
   filename: string
   testType?: "unit" | "e2e"
   testContent: string
 }
+
+export const TEST_GENERATION_LABEL = "agent-generate-tests"
 
 const gatingSchema = z.object({
   decision: z.object({
@@ -34,59 +32,33 @@ const openai = createOpenAI({
   compatibility: "strict"
 })
 
-export const TEST_GENERATION_LABEL = "agent-generate-tests"
-
 async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
   try {
     const startTag = "<tests>"
     const endTag = "</tests>"
     const startIndex = xmlText.indexOf(startTag)
     const endIndex = xmlText.indexOf(endTag) + endTag.length
-
-    if (startIndex === -1 || endIndex === -1) {
-      console.warn("Could not locate <tests> tags in AI output.")
-      return []
-    }
-
+    if (startIndex === -1 || endIndex === -1) return []
     const xmlPortion = xmlText.slice(startIndex, endIndex)
     const parsed = await parseStringPromise(xmlPortion)
-
     const proposals: TestProposal[] = []
     const root = parsed.tests
-
-    if (!root?.testProposals) {
-      console.warn("No <testProposals> found in the parsed XML.")
-      return []
-    }
-
+    if (!root?.testProposals) return []
     const testProposalsArr = root.testProposals[0].proposal
-    if (!Array.isArray(testProposalsArr)) {
-      console.warn("No <proposal> array found under <testProposals>.")
-      return []
-    }
-
+    if (!Array.isArray(testProposalsArr)) return []
     for (const item of testProposalsArr) {
       const filename = item.filename?.[0] ?? ""
       const testType = item.testType?.[0] ?? ""
       const testContent = item.testContent?.[0] ?? ""
-
-      if (!filename || !testContent) {
-        console.warn(
-          "Skipping incomplete proposal (missing filename or testContent)."
-        )
-        continue
-      }
-
+      if (!filename || !testContent) continue
       proposals.push({
         filename,
         testType: testType === "e2e" ? "e2e" : "unit",
         testContent
       })
     }
-
     return proposals
-  } catch (err) {
-    console.error("Error parsing AI-generated test XML:", err)
+  } catch {
     return []
   }
 }
@@ -95,49 +67,22 @@ async function generateTestsForChanges(
   context: PullRequestContextWithTests
 ): Promise<TestProposal[]> {
   const { title, changedFiles, commitMessages, existingTestFiles } = context
-
   const existingTestsPrompt = existingTestFiles
-    .map(
-      f => `
-Existing test file: ${f.filename}
----
-${f.content}
----
-`
-    )
+    .map(f => `Existing test file: ${f.filename}\n---\n${f.content}\n---\n`)
     .join("\n")
-
   const prompt = `
 You are an expert software developer specializing in writing tests for a Next.js codebase.
 
 We have two categories of tests:
-1) Unit tests (Jest + Testing Library), typically in __tests__/unit/.
-2) E2E tests (Playwright), typically in __tests__/e2e/.
+1) Unit tests (Jest + Testing Library) in __tests__/unit/.
+2) E2E tests (Playwright) in __tests__/e2e/.
 
-We allow updating existing tests or creating new ones. If a file below matches 
-the functionality of a changed file, update that existing test instead of 
-creating a new one. Return the full final content for every file you modify 
-and for every new file you create.
+If an existing test covers related functionality, update it instead of creating a new file. Return final content for each file you modify or create.
+If a React component is a Server Component, handle it asynchronously in tests. If it's a Client Component, test it normally.
 
-Also note:
-- If a React component is a **Server Component** (no "use client" at the top, or it uses server APIs), 
-  we must handle it asynchronously in tests. The test function should be \`async\` and the component 
-  must be awaited before rendering, e.g.:
-  
-  \`\`\`ts
-  it("renders MyServerComp properly", async () => {
-    render(await MyServerComp());
-    // assertions...
-  });
-  \`\`\`
-- If the component is a Client Component (explicit "use client" at the top), we can test it normally 
-  with synchronous \`render(<MyClientComp />)\`.
-
-Analyze this pull request:
 Title: ${title}
-Commit Messages:
-${commitMessages.map(msg => `- ${msg}`).join("\n")}
-
+Commits:
+${commitMessages.map(m => `- ${m}`).join("\n")}
 Changed Files:
 ${changedFiles
   .map(
@@ -151,24 +96,16 @@ ${file.content ?? "N/A"}
 `
   )
   .join("\n---\n")}
-
-Existing Test Files:
+Existing Tests:
 ${existingTestsPrompt}
 
-Output MUST be valid XML with a single root <tests>. 
-Inside it, place <testProposals> containing one or more <proposal>. 
-For each <proposal>:
-  <filename> (the file path in __tests__/...),
-  <testType> (either "unit" or "e2e"),
-  <testContent> (the ENTIRE updated or new test file content, no code blocks).
-
-Example:
+Return valid XML:
 <tests>
   <testProposals>
     <proposal>
-      <filename>__tests__/unit/MyUtil.test.ts</filename>
-      <testType>unit</testType>
-      <testContent>// entire updated code here</testContent>
+      <filename>...</filename>
+      <testType>...</testType>
+      <testContent>...</testContent>
     </proposal>
   </testProposals>
 </tests>
@@ -182,17 +119,9 @@ ONLY return the <tests> XML with proposals. Do not add extra commentary.
       model: openai("o1"),
       prompt
     })
-
-    console.log(
-      "\n=== AI Response (Test Generation) ===\n",
-      text,
-      "\n================\n"
-    )
-
-    const proposals = await parseTestXml(text)
-    return proposals
-  } catch (err) {
-    console.error("Error generating tests from AI:", err)
+    console.log("text", text)
+    return await parseTestXml(text)
+  } catch {
     return []
   }
 }
@@ -209,7 +138,6 @@ async function commitTestsToExistingBranch(
       repo,
       ref: `heads/${branchName}`
     })
-
     try {
       const { data: existingFile } = await octokit.repos.getContent({
         owner,
@@ -217,11 +145,9 @@ async function commitTestsToExistingBranch(
         path: proposal.filename,
         ref: branchName
       })
-
       const contentBase64 = Buffer.from(proposal.testContent, "utf8").toString(
         "base64"
       )
-
       await octokit.repos.createOrUpdateFileContents({
         owner,
         repo,
@@ -237,7 +163,6 @@ async function commitTestsToExistingBranch(
           proposal.testContent,
           "utf8"
         ).toString("base64")
-
         await octokit.repos.createOrUpdateFileContents({
           owner,
           repo,
@@ -271,43 +196,54 @@ ${testList}
 *(Pull from that branch to see & modify them.)*`
     : `⚠️ No test proposals were generated.`
 }`
-
   await updateComment(owner, repo, commentId, body)
 }
 
-async function shouldGenerateFrontendTests(
-  changedFiles: PullRequestContext["changedFiles"]
-): Promise<{ shouldGenerate: boolean; reason: string }> {
-  const changedFilesList = changedFiles.map(cf => `- ${cf.filename}`).join("\n")
+async function gatingStep(context: PullRequestContextWithTests) {
+  const { title, changedFiles, commitMessages } = context
+  const prompt = `
+You are an expert in deciding if front-end tests are needed for these changes.
+
+You have the PR title, commits, and file diffs/content. Only return the object in JSON format: {"decision":{"shouldGenerateTests":true or false,"reasoning":"some text"}}
+
+PR Title: ${title}
+Commits:
+${commitMessages.map(m => `- ${m}`).join("\n")}
+Changed Files:
+${changedFiles
+  .map(
+    file => `
+File: ${file.filename}
+Status: ${file.status}
+Patch:
+${file.patch}
+Content:
+${file.content ?? "N/A"}
+`
+  )
+  .join("\n---\n")}
+`
+  console.log("prompt", prompt)
 
   try {
     const result = await generateObject({
-      model: openai("o1", { structuredOutputs: true }),
+      model: openai("o1-mini", { structuredOutputs: true }),
       schema: gatingSchema,
       schemaName: "decision",
-      schemaDescription: "A decision about whether to generate front-end tests",
-      prompt: `You are an expert developer focusing on Next.js front-end code. 
-We only generate tests for front-end related changes (e.g., .tsx files in 'app/' or 'components/', custom React hooks, etc.). 
-We do not generate tests for purely backend or config files.
-
-Here is the list of changed files:
-${changedFilesList}
-
-Analyze whether any of them warrant front-end tests. Provide a boolean (shouldGenerateTests) and a short reasoning.
-`
+      schemaDescription: "Decision for test generation",
+      prompt
     })
+
     console.log(
       "shouldGenerateTests",
       result.object.decision.shouldGenerateTests
     )
     console.log("reasoning", result.object.decision.reasoning)
-
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
       reason: result.object.decision.reasoning
     }
-  } catch (err) {
-    console.error("Error in gating step for front-end tests:", err)
+  } catch {
     return { shouldGenerate: false, reason: "Error in gating check" }
   }
 }
@@ -315,10 +251,8 @@ Analyze whether any of them warrant front-end tests. Provide a boolean (shouldGe
 export async function handleTestGeneration(
   context: PullRequestContextWithTests
 ) {
-  const { owner, repo, pullNumber, headRef, changedFiles, existingTestFiles } =
-    context
+  const { owner, repo, pullNumber, headRef } = context
   let commentId: number | undefined
-
   try {
     commentId = await createPlaceholderComment(
       owner,
@@ -326,9 +260,7 @@ export async function handleTestGeneration(
       pullNumber,
       "🧪 AI Test Generation in progress..."
     )
-
-    const { shouldGenerate, reason } =
-      await shouldGenerateFrontendTests(changedFiles)
+    const { shouldGenerate, reason } = await gatingStep(context)
     if (!shouldGenerate) {
       await updateComment(
         owner,
@@ -338,13 +270,10 @@ export async function handleTestGeneration(
       )
       return
     }
-
     const testProposals = await generateTestsForChanges(context)
-
     if (testProposals.length > 0) {
       await commitTestsToExistingBranch(owner, repo, headRef, testProposals)
     }
-
     await updateCommentWithResults(
       owner,
       repo,
@@ -354,7 +283,6 @@ export async function handleTestGeneration(
     )
     await removeLabel(owner, repo, pullNumber, TEST_GENERATION_LABEL)
   } catch (err) {
-    console.error("Error in handleTestGeneration:", err)
     if (typeof commentId !== "undefined") {
       await updateComment(
         owner,
