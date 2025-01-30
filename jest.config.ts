@@ -13,6 +13,9 @@ const config: Config = {
   coverageProvider: "v8",
   coverageDirectory: "reports/jest/coverage",
   testEnvironment: "jsdom",
+  moduleNameMapper: {
+    "^@/(.*)$": "<rootDir>/$1"
+  },
   reporters: [
     "default",
     [
