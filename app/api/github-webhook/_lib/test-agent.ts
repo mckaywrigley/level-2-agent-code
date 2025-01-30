@@ -243,6 +243,7 @@ ONLY return the <tests> XML with proposals. Do not add extra commentary.
       model,
       prompt
     })
+    console.log("text", text)
 
     // Parse the generated XML and finalize file extensions
     const rawProposals = await parseTestXml(text)
@@ -434,6 +435,13 @@ ${existingTestsPrompt}
       schemaDescription: "Decision for test generation",
       prompt
     })
+
+    console.log(
+      "shouldGenerate",
+      result.object.decision.shouldGenerateTests,
+      result.object.decision.reasoning,
+      result.object.decision.recommendation
+    )
 
     return {
       shouldGenerate: result.object.decision.shouldGenerateTests,
