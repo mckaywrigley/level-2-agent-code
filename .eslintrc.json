@@ -21,7 +21,8 @@ Contains the ESLint configuration for the app.
     "tailwindcss/no-contradicting-classname": "off",
     "tailwindcss/no-custom-classname": "off",
     "tailwindcss/no-unnecessary-arbitrary-value": "off",
-    "react/no-unescaped-entities": "off"
+    "react/no-unescaped-entities": "off",
+    "react/display-name": "off"
   },
   "settings": {
     "tailwindcss": {
