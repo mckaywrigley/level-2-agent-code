@@ -15,7 +15,6 @@ import { handleTestGeneration } from "./_lib/test-agent"
 export async function POST(request: NextRequest) {
   try {
     const rawBody = await request.text()
-
     const payload = JSON.parse(rawBody)
 
     const eventType = request.headers.get("x-github-event")
@@ -26,22 +25,17 @@ export async function POST(request: NextRequest) {
         await handleReviewAgent(context)
       }
 
-      if (payload.action === "ready_for_review") {
-        const context = await handlePullRequestForTestAgent(payload)
-        await handleTestGeneration(context)
-      }
-
       if (payload.action === "labeled") {
         const labelName = payload.label?.name
+
+        if (labelName === "agent-ready-for-review") {
+          const context = await handlePullRequestBase(payload)
+          await handleReviewAgent(context)
+        }
 
         if (labelName === "agent-ready-for-tests") {
           const context = await handlePullRequestForTestAgent(payload)
           await handleTestGeneration(context)
-        }
-
-        if (labelName === "agent-review") {
-          const context = await handlePullRequestBase(payload)
-          await handleReviewAgent(context)
         }
       }
     }
