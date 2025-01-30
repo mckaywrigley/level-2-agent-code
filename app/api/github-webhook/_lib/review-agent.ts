@@ -10,7 +10,7 @@ import { parseStringPromise } from "xml2js"
 import { createPlaceholderComment, updateComment } from "./comments"
 import { PullRequestContext, removeLabel } from "./handlers"
 
-const REVIEW_LABEL = "agent-review"
+const REVIEW_LABEL = "agent-review-pr"
 
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY!,

@@ -34,7 +34,7 @@ const openai = createOpenAI({
   compatibility: "strict"
 })
 
-const TEST_GENERATION_LABEL = "needs-tests"
+const TEST_GENERATION_LABEL = "agent-generate-tests"
 
 async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
   try {
