@@ -8,54 +8,47 @@ It defines how our tests will run, what browsers to use, and various testing beh
 import { defineConfig, devices } from "@playwright/test"
 
 export default defineConfig({
-  // Specify where our end-to-end tests are located
+  // The directory where our end-to-end tests live
   testDir: "__tests__/e2e",
 
-  // Run all tests in parallel for faster execution
+  // Run all tests in parallel for speed
   fullyParallel: true,
 
-  // In CI environments, prevent use of .only() in tests
-  // .only() is used during development to run specific tests
+  // In CI, forbid the usage of test.only
   forbidOnly: !!process.env.CI,
 
-  // Number of times to retry failed tests
-  // More retries in CI environment to handle flaky tests
+  // Retry failing tests to reduce flakiness, especially in CI
   retries: process.env.CI ? 2 : 0,
 
-  // Number of concurrent test workers
-  // Limited to 1 in CI to prevent resource conflicts
+  // Limit concurrency in CI for resource reasons
   workers: process.env.CI ? 1 : undefined,
 
-  // Configure test reporting
+  // Configure how results are reported
   reporter: [
-    // 'dot' shows simple dots for test progress
     ["dot"],
-    // 'json' creates a detailed JSON report in the specified location
     ["json", { outputFile: "reports/playwright/report.json" }]
   ],
 
   // Global test configuration
   use: {
-    // Base URL for all tests - useful for relative paths in navigation
     baseURL: "http://localhost:3000",
-    // Only capture trace (video, screenshots, etc.) on first retry of failed tests
-    trace: "on-first-retry"
+    trace: "on-first-retry" // Collect trace only when retrying failed tests
   },
 
-  // Configure different browsers for testing
+  // Define the browsers and environments to test in
   projects: [
     {
-      name: "chromium", // Chrome/Edge testing
-      use: { ...devices["Desktop Chrome"] }, // Use Chrome-specific settings
-      outputDir: "reports/playwright/chromium" // Where to store test artifacts
+      name: "chromium",
+      use: { ...devices["Desktop Chrome"] },
+      outputDir: "reports/playwright/chromium"
     },
     {
-      name: "firefox", // Firefox testing
+      name: "firefox",
       use: { ...devices["Desktop Firefox"] },
       outputDir: "reports/playwright/firefox"
     },
     {
-      name: "webkit", // Safari testing
+      name: "webkit",
       use: { ...devices["Desktop Safari"] },
       outputDir: "reports/playwright/webkit"
     }

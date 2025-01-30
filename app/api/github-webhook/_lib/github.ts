@@ -13,7 +13,7 @@ import { Buffer } from "buffer"
 const { GH_APP_ID, GH_PRIVATE_KEY, GH_INSTALLATION_ID } = process.env
 
 // Validate that all required environment variables are present
-// This check runs when the application starts up
+// This check runs when the application starts up to ensure the environment is configured properly
 if (!GH_APP_ID || !GH_PRIVATE_KEY || !GH_INSTALLATION_ID) {
   throw new Error(
     "Missing GitHub App environment variables: GH_APP_ID, GH_PRIVATE_KEY, GH_INSTALLATION_ID."
@@ -22,6 +22,7 @@ if (!GH_APP_ID || !GH_PRIVATE_KEY || !GH_INSTALLATION_ID) {
 
 // Create an authenticated Octokit instance
 // Octokit is GitHub's official client library for interacting with their API
+// createAppAuth handles the specifics of GitHub App authentication
 export const octokit = new Octokit({
   authStrategy: createAppAuth,
   auth: {
@@ -47,11 +48,11 @@ export async function getFileContent(
   ref: string
 ) {
   try {
-    // Fetch the file content from GitHub
-    // GitHub returns file content as base64-encoded string
+    // Fetch the file content from GitHub using octokit
+    // The GitHub response returns file content in a base64-encoded string
     const response = await octokit.repos.getContent({ owner, repo, path, ref })
 
-    // Check if we received file content (could also be directory content)
+    // Check if we received file content (instead of directory info or an error)
     if (
       "content" in response.data &&
       typeof response.data.content === "string"
@@ -66,7 +67,7 @@ export async function getFileContent(
       console.log(`File ${path} not found at ref ${ref}`)
       return undefined
     }
-    // Re-throw any other errors
+    // Re-throw any other errors so they can be handled upstream
     throw err
   }
 }

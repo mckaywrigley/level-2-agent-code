@@ -17,41 +17,40 @@ import { createOpenAI } from "@ai-sdk/openai"
  * @throws Error if required API keys are missing
  */
 export function getLLMModel() {
-  // Get the provider from environment variables, defaulting to OpenAI if not specified
+  // Read the chosen provider from the environment, defaulting to "openai" if not set
   const provider = process.env.LLM_PROVIDER || "openai"
 
-  // Default model names for each provider
-  // These are used if no specific model is specified in environment variables
+  // Default model names if none are specified in environment variables
   const openAIDefaultModel = "o1"
   const anthropicDefaultModel = "claude-3-5-sonnet-latest"
 
-  // Handle Anthropic configuration
+  // If the user has specified "anthropic" as provider, we configure Anthropic
   if (provider === "anthropic") {
-    // Check for required API key
+    // Check for Anthropic API key
     if (!process.env.ANTHROPIC_API_KEY) {
       throw new Error("Missing ANTHROPIC_API_KEY for Anthropic usage.")
     }
 
-    // Create and configure the Anthropic client
+    // Create an Anthropic client instance
     const anthropic = createAnthropic({
       apiKey: process.env.ANTHROPIC_API_KEY
     })
 
-    // Return the configured model, using the default if none specified
+    // Return a handle to the desired model, defaulting if not specified
     return anthropic(process.env.LLM_MODEL || anthropicDefaultModel)
   }
 
-  // Handle OpenAI configuration (default case)
+  // Otherwise, handle the default or "openai" scenario
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("Missing OPENAI_API_KEY for OpenAI usage.")
   }
 
-  // Create and configure the OpenAI client
+  // Create an OpenAI client instance
   const openai = createOpenAI({
     apiKey: process.env.OPENAI_API_KEY,
-    compatibility: "strict" // Ensures strict API compatibility mode
+    compatibility: "strict" // Strict ensures we adhere to the official API
   })
 
-  // Return the configured model, using the default if none specified
+  // Return the configured OpenAI model
   return openai(process.env.LLM_MODEL || openAIDefaultModel)
 }
