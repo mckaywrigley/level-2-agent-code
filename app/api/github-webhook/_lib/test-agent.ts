@@ -11,6 +11,7 @@ import { z } from "zod"
 import { createPlaceholderComment, updateComment } from "./comments"
 import { octokit } from "./github"
 import { PullRequestContextWithTests, removeLabel } from "./handlers"
+import { getLLMModel } from "./llm"
 
 interface TestProposal {
   filename: string
@@ -194,8 +195,9 @@ ONLY return the <tests> XML with proposals. Do not add extra commentary.
 `
 
   try {
+    const model = getLLMModel()
     const { text } = await generateText({
-      model: openai("o1"),
+      model,
       prompt
     })
     const rawProposals = await parseTestXml(text)
@@ -331,8 +333,9 @@ ${file.content ?? "N/A"}
   .join("\n---\n")}
 `
   try {
+    const model = getLLMModel()
     const result = await generateObject({
-      model: openai("o1", { structuredOutputs: true }),
+      model,
       schema: gatingSchema,
       schemaName: "decision",
       schemaDescription: "Decision for test generation",

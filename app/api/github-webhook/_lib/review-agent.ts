@@ -9,6 +9,7 @@ import { generateText } from "ai"
 import { parseStringPromise } from "xml2js"
 import { createPlaceholderComment, updateComment } from "./comments"
 import { PullRequestContext, removeLabel } from "./handlers"
+import { getLLMModel } from "./llm"
 
 export const REVIEW_LABEL = "agent-review-pr"
 
@@ -124,8 +125,9 @@ ONLY return the <review> XML with the summary, fileAnalyses, and overallSuggesti
 `
 
   try {
+    const model = getLLMModel()
     const { text } = await generateText({
-      model: openai("o1"),
+      model,
       prompt
     })
 
