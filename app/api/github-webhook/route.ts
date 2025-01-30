@@ -9,8 +9,8 @@ import {
   handlePullRequestBase,
   handlePullRequestForTestAgent
 } from "./_lib/handlers"
-import { handleReviewAgent } from "./_lib/review-agent"
-import { handleTestGeneration } from "./_lib/test-agent"
+import { handleReviewAgent, REVIEW_LABEL } from "./_lib/review-agent"
+import { handleTestGeneration, TEST_GENERATION_LABEL } from "./_lib/test-agent"
 
 export async function POST(request: NextRequest) {
   try {
@@ -28,12 +28,12 @@ export async function POST(request: NextRequest) {
       if (payload.action === "labeled") {
         const labelName = payload.label?.name
 
-        if (labelName === "agent-ready-for-review") {
+        if (labelName === REVIEW_LABEL) {
           const context = await handlePullRequestBase(payload)
           await handleReviewAgent(context)
         }
 
-        if (labelName === "agent-ready-for-tests") {
+        if (labelName === TEST_GENERATION_LABEL) {
           const context = await handlePullRequestForTestAgent(payload)
           await handleTestGeneration(context)
         }
