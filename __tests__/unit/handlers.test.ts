@@ -1,5 +1,3 @@
-// __tests__/unit/handlers.test.ts
-
 import { removeLabel } from "@/app/api/github-webhook/_lib/handlers";
 
 // We'll mock the octokit instance from the github module
