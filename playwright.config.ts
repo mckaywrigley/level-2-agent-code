@@ -14,7 +14,7 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   reporter: [
     ["dot"],
-    ["json", { outputFile: "playwright-report/report.json" }]
+    ["json", { outputFile: "reports/playwright/report.json" }]
   ],
   use: {
     baseURL: "http://localhost:3000",
@@ -23,15 +23,18 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      use: { ...devices["Desktop Chrome"] }
+      use: { ...devices["Desktop Chrome"] },
+      outputDir: "reports/playwright/chromium"
     },
     {
       name: "firefox",
-      use: { ...devices["Desktop Firefox"] }
+      use: { ...devices["Desktop Firefox"] },
+      outputDir: "reports/playwright/firefox"
     },
     {
       name: "webkit",
-      use: { ...devices["Desktop Safari"] }
+      use: { ...devices["Desktop Safari"] },
+      outputDir: "reports/playwright/webkit"
     }
   ]
 })

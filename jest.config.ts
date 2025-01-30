@@ -7,13 +7,22 @@ This file contains the configuration for Jest.
 import type { Config } from "jest"
 import nextJest from "next/jest.js"
 
-const createJestConfig = nextJest({
-  dir: "./"
-})
+const createJestConfig = nextJest({ dir: "./" })
 
 const config: Config = {
   coverageProvider: "v8",
+  coverageDirectory: "reports/jest/coverage",
   testEnvironment: "jsdom",
+  reporters: [
+    "default",
+    [
+      "jest-junit",
+      {
+        outputDirectory: "reports/jest",
+        outputName: "test-results.xml"
+      }
+    ]
+  ],
   testMatch: [
     "<rootDir>/__tests__/unit/**/*.test.ts",
     "<rootDir>/__tests__/unit/**/*.test.tsx"
