@@ -227,7 +227,7 @@ ${file.content ?? "N/A"}
 
   try {
     const result = await generateObject({
-      model: openai("o1-mini", { structuredOutputs: true }),
+      model: openai("o1", { structuredOutputs: true }),
       schema: gatingSchema,
       schemaName: "decision",
       schemaDescription: "Decision for test generation",
