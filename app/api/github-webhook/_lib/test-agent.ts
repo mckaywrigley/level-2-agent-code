@@ -69,7 +69,12 @@ async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
     // Read data from the XML
     const filename = item.filename?.[0] ?? ""
     const testType = item.testType?.[0] ?? ""
-    const testContent = item.testContent?.[0] ?? ""
+    let testContent = item.testContent?.[0] ?? ""
+
+    // If testContent is an object (CDATA), pull out the actual text
+    if (typeof testContent === "object" && "_" in testContent) {
+      testContent = testContent._
+    }
 
     // Parse possible file actions
     const actionNode = item.actions?.[0]
@@ -223,7 +228,9 @@ Return ONLY valid XML in the following structure:
     <proposal>
       <filename>__tests__/unit/... .test.ts[x]</filename>
       <testType>unit or e2e</testType>
-      <testContent>...</testContent>
+      <testContent><![CDATA[
+YOUR TEST CODE HERE
+]]></testContent>
       <actions>
         <action>create</action> OR <action>update</action> OR <action>rename</action>
         <!-- if rename -->
@@ -414,7 +421,7 @@ ${f.content}
   const prompt = `
 You are an expert in deciding if front-end tests are needed for these changes.
 
-You have the PR title, commits, and file diffs/content. Only return the object in JSON format: {"decision":{"shouldGenerateTests":true or false,"reasoning":"some text"}}
+You have the PR title, commits, and file diffs/content. Only return the object in JSON format: {"decision":{"shouldGenerateTests":true or false,"reasoning":"some text","recommendation":"some text"}}
 
 Title: ${title}
 Commits:
