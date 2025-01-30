@@ -1,28 +1,25 @@
+/*
+<ai_context>
+This file contains the configuration for Playwright.
+</ai_context>
+*/
+
 import { defineConfig, devices } from "@playwright/test"
 
 export default defineConfig({
-  testDir: "__tests__/e2e", // Update to match your e2e test location
-  /* Run tests in files in parallel */
+  testDir: "__tests__/e2e",
   fullyParallel: true,
-  /* Fail the build on CI if you accidentally left test.only in the source code. */
   forbidOnly: !!process.env.CI,
-  /* Retry on CI only */
   retries: process.env.CI ? 2 : 0,
-  /* Opt out of parallel tests on CI. */
   workers: process.env.CI ? 1 : undefined,
-  /* Reporter to use. See https://playwright.dev/docs/test-reporters */
   reporter: [
-    ["dot"], // or 'line' or something else you like
+    ["dot"],
     ["json", { outputFile: "playwright-report/report.json" }]
   ],
-  /* Shared settings for all the projects below. See https://playwright.dev/docs/api/class-testoptions. */
   use: {
-    /* Base URL to use in actions like `await page.goto('/')`. */
     baseURL: "http://localhost:3000",
     trace: "on-first-retry"
   },
-
-  /* Configure projects for major browsers */
   projects: [
     {
       name: "chromium",

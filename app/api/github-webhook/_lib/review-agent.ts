@@ -1,3 +1,9 @@
+/*
+<ai_context>
+This file contains functions for generating and committing tests to a GitHub PR.
+</ai_context>
+*/
+
 import { createOpenAI } from "@ai-sdk/openai"
 import { generateText } from "ai"
 import { parseStringPromise } from "xml2js"
@@ -5,20 +11,13 @@ import { createPlaceholderComment, updateComment } from "./comments"
 import { octokit } from "./github"
 import { PullRequestContext } from "./handlers"
 
-// Label used to trigger or indicate a code review
 const REVIEW_LABEL = "agent-review"
 
-// Initialize our OpenAI client
 const openai = createOpenAI({
   apiKey: process.env.OPENAI_API_KEY!,
   compatibility: "strict"
 })
 
-/**
- * parseReviewXml:
- * Parses the AI's response as XML within <review> ... </review> tags.
- * Returns an object with summary, fileAnalyses, and overallSuggestions.
- */
 async function parseReviewXml(xmlText: string) {
   try {
     const startTag = "<review>"
@@ -62,9 +61,6 @@ async function parseReviewXml(xmlText: string) {
   }
 }
 
-/**
- * Updates the comment on GitHub with the final review text.
- */
 async function updateCommentWithReview(
   owner: string,
   repo: string,
@@ -88,15 +84,9 @@ ${analysis.overallSuggestions.map((s: string) => `- ${s}`).join("\n")}
   await updateComment(owner, repo, commentId, commentBody)
 }
 
-/**
- * generateReview:
- * Gathers info from the PullRequestContext and creates a robust prompt for the code review.
- * The LLM returns XML, which we parse for the final review.
- */
 async function generateReview(context: PullRequestContext) {
   const { title, changedFiles, commitMessages } = context
 
-  // Compose a more detailed, robust prompt
   const prompt = `
 You are an expert code reviewer. Provide feedback on the following pull request changes in clear, concise paragraphs. 
 Do not use code blocks for regular text. Format any suggestions as single-line bullet points.
@@ -159,19 +149,11 @@ Return ONLY valid XML in the following structure (no extra commentary):
   }
 }
 
-/**
- * Main handler that:
- * 1) Creates a placeholder comment
- * 2) Generates the code review
- * 3) Updates the comment with the results
- * 4) Removes the label if present
- */
 export async function handleReviewAgent(context: PullRequestContext) {
   const { owner, repo, pullNumber } = context
   let commentId: number | undefined
 
   try {
-    // 1) Create placeholder
     commentId = await createPlaceholderComment(
       owner,
       repo,
@@ -179,13 +161,10 @@ export async function handleReviewAgent(context: PullRequestContext) {
       "🤖 AI Code Review in progress..."
     )
 
-    // 2) Generate review
     const analysis = await generateReview(context)
 
-    // 3) Update the comment
     await updateCommentWithReview(owner, repo, commentId, await analysis)
 
-    // 4) Remove the "agent-review" label if it exists
     try {
       await octokit.issues.removeLabel({
         owner,

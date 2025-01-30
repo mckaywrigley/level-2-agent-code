@@ -1,3 +1,9 @@
+/*
+<ai_context>
+This file contains functions for interacting with GitHub.
+</ai_context>
+*/
+
 import { createAppAuth } from "@octokit/auth-app"
 import { Octokit } from "@octokit/rest"
 import { Buffer } from "buffer"
@@ -19,9 +25,6 @@ export const octokit = new Octokit({
   }
 })
 
-/**
- * Retrieve file content from a GitHub repo at a specific ref. Returns decoded string or undefined if not found.
- */
 export async function getFileContent(
   owner: string,
   repo: string,

@@ -1,3 +1,9 @@
+/*
+<ai_context>
+This file contains functions for generating and committing tests to a GitHub PR.
+</ai_context>
+*/
+
 import { createOpenAI } from "@ai-sdk/openai"
 import { generateObject, generateText } from "ai"
 import { parseStringPromise } from "xml2js"
@@ -6,16 +12,12 @@ import { createPlaceholderComment, updateComment } from "./comments"
 import { octokit } from "./github"
 import { PullRequestContext, PullRequestContextWithTests } from "./handlers"
 
-/**
- * The shape we parse from the AI's XML output for test proposals.
- */
 interface TestProposal {
   filename: string
   testType?: "unit" | "e2e"
   testContent: string
 }
 
-// Zod schema for gating the decision on test generation
 const gatingSchema = z.object({
   decision: z.object({
     shouldGenerateTests: z.boolean(),
@@ -30,11 +32,6 @@ const openai = createOpenAI({
 
 const TEST_GENERATION_LABEL = "needs-tests"
 
-/**
- * parseTestXml:
- * Extracts <tests> ... </tests> from the AI output and
- * returns an array of test proposals.
- */
 async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
   try {
     const startTag = "<tests>"
@@ -50,19 +47,6 @@ async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
     const xmlPortion = xmlText.slice(startIndex, endIndex)
     const parsed = await parseStringPromise(xmlPortion)
 
-    // Example structure:
-    // {
-    //   tests: {
-    //     testProposals: [
-    //       {
-    //         proposal: [
-    //           { filename: [...], testType: [...], testContent: [...] },
-    //           ...
-    //         ]
-    //       }
-    //     ]
-    //   }
-    // }
     const proposals: TestProposal[] = []
     const root = parsed.tests
 
@@ -103,17 +87,11 @@ async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
   }
 }
 
-/**
- * generateTestsForChanges:
- * Uses a robust prompt. It includes existing test files so that the model
- * can update them if needed instead of always creating new ones.
- */
 async function generateTestsForChanges(
   context: PullRequestContextWithTests
 ): Promise<TestProposal[]> {
   const { title, changedFiles, commitMessages, existingTestFiles } = context
 
-  // Provide full listing of existing test files + content:
   const existingTestsPrompt = existingTestFiles
     .map(
       f => `
@@ -213,18 +191,12 @@ ONLY return the <tests> XML with proposals. Do not add extra commentary.
   }
 }
 
-/**
- * commitTestsToExistingBranch:
- * Commits each test proposal to the existing PR branch (headRef).
- * If the file already exists, GitHub will treat this as an update.
- */
 async function commitTestsToExistingBranch(
   owner: string,
   repo: string,
   branchName: string,
   proposals: TestProposal[]
 ) {
-  // Get the latest commit SHA
   const { data: refData } = await octokit.git.getRef({
     owner,
     repo,
@@ -232,7 +204,6 @@ async function commitTestsToExistingBranch(
   })
   const latestCommitSha = refData.object.sha
 
-  // For each proposal, create or update the file
   for (const proposal of proposals) {
     const contentBase64 = Buffer.from(proposal.testContent, "utf8").toString(
       "base64"
@@ -250,9 +221,6 @@ async function commitTestsToExistingBranch(
   }
 }
 
-/**
- * Updates the comment with final test generation results.
- */
 async function updateCommentWithResults(
   owner: string,
   repo: string,
@@ -275,9 +243,6 @@ ${testList}
   await updateComment(owner, repo, commentId, body)
 }
 
-/**
- * Uses an LLM to decide if we should generate front-end tests.
- */
 async function shouldGenerateFrontendTests(
   changedFiles: PullRequestContext["changedFiles"]
 ): Promise<{ shouldGenerate: boolean; reason: string }> {
@@ -310,15 +275,6 @@ Analyze whether any of them warrant front-end tests. Provide a boolean (shouldGe
   }
 }
 
-/**
- * handleTestGeneration:
- * 1) Creates a placeholder comment
- * 2) Runs gating check
- * 3) If yes, generate or update test proposals
- * 4) Commit to existing PR branch
- * 5) Update comment with results
- * 6) Remove label
- */
 export async function handleTestGeneration(
   context: PullRequestContextWithTests
 ) {
@@ -327,7 +283,6 @@ export async function handleTestGeneration(
   let commentId: number | undefined
 
   try {
-    // 1) Create placeholder comment
     commentId = await createPlaceholderComment(
       owner,
       repo,
@@ -335,7 +290,6 @@ export async function handleTestGeneration(
       "🧪 AI Test Generation in progress..."
     )
 
-    // 2) Decide if we should generate tests
     const { shouldGenerate, reason } =
       await shouldGenerateFrontendTests(changedFiles)
     if (!shouldGenerate) {
@@ -348,15 +302,12 @@ export async function handleTestGeneration(
       return
     }
 
-    // 3) Generate test proposals
     const testProposals = await generateTestsForChanges(context)
 
-    // 4) If we have proposals, commit them
     if (testProposals.length > 0) {
       await commitTestsToExistingBranch(owner, repo, headRef, testProposals)
     }
 
-    // 5) Update the comment
     await updateCommentWithResults(
       owner,
       repo,
@@ -365,7 +316,6 @@ export async function handleTestGeneration(
       testProposals
     )
 
-    // 6) Remove the test label
     try {
       await octokit.issues.removeLabel({
         owner,

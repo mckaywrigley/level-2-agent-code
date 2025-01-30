@@ -1,9 +1,11 @@
+/*
+<ai_context>
+This file contains functions for creating and updating comments on GitHub.
+</ai_context>
+*/
+
 import { octokit } from "./github"
 
-/**
- * createPlaceholderComment:
- * Creates a new comment on the PR. Returns the comment ID for future updates.
- */
 export async function createPlaceholderComment(
   owner: string,
   repo: string,
@@ -19,10 +21,6 @@ export async function createPlaceholderComment(
   return data.id
 }
 
-/**
- * updateComment:
- * Updates an existing comment by comment ID.
- */
 export async function updateComment(
   owner: string,
   repo: string,

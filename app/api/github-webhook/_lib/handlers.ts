@@ -1,3 +1,9 @@
+/*
+<ai_context>
+This file contains functions for handling GitHub webhook events.
+</ai_context>
+*/
+
 import { getFileContent, octokit } from "./github"
 
 export interface PullRequestContext {
@@ -25,12 +31,6 @@ export interface PullRequestContextWithTests extends PullRequestContext {
   }[]
 }
 
-/**
- * The basic function that collects minimal PR data:
- * - Owner, repo, PR number, branch info
- * - changedFiles with patch + content
- * - commitMessages
- */
 export async function handlePullRequestBase(
   payload: any
 ): Promise<PullRequestContext> {
@@ -41,7 +41,6 @@ export async function handlePullRequestBase(
   const baseRef = payload.pull_request.base.ref
   const title = payload.pull_request.title
 
-  // 1) List changed files
   const filesRes = await octokit.pulls.listFiles({
     owner,
     repo,
@@ -65,7 +64,6 @@ export async function handlePullRequestBase(
     })
   )
 
-  // 2) Collect commit messages
   const commitsRes = await octokit.pulls.listCommits({
     owner,
     repo,
@@ -85,9 +83,6 @@ export async function handlePullRequestBase(
   }
 }
 
-/**
- * Recursively fetches all files under __tests__/ to build an array of test files with content.
- */
 async function getAllTestFiles(
   owner: string,
   repo: string,
@@ -115,7 +110,6 @@ async function getAllTestFiles(
             })
           }
         } else if (item.type === "dir") {
-          // Recurse into subdir
           const subDirFiles = await getAllTestFiles(owner, repo, ref, item.path)
           results.push(...subDirFiles)
         }
@@ -123,7 +117,6 @@ async function getAllTestFiles(
     }
   } catch (err: any) {
     if (err.status === 404) {
-      // If the directory doesn't exist, skip
       console.log(`No ${dirPath} folder found, skipping.`)
     } else {
       console.error("Error in getAllTestFiles:", err)
@@ -133,17 +126,11 @@ async function getAllTestFiles(
   return results
 }
 
-/**
- * Extends the base pull request context with existing test file info.
- * Use this ONLY for test generation, not for code review.
- */
 export async function handlePullRequestForTestAgent(
   payload: any
 ): Promise<PullRequestContextWithTests> {
-  // Start with the base context
   const baseContext = await handlePullRequestBase(payload)
 
-  // Gather existing test files
   const existingTestFiles = await getAllTestFiles(
     baseContext.owner,
     baseContext.repo,
