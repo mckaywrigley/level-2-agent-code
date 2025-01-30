@@ -1,6 +1,7 @@
 /*
 <ai_context>
 This file contains functions for generating and committing tests to a GitHub PR.
+It analyzes changed files and generates appropriate unit or e2e tests.
 </ai_context>
 */
 
@@ -12,18 +13,22 @@ import { octokit } from "./github"
 import { PullRequestContextWithTests, removeLabel } from "./handlers"
 import { getLLMModel } from "./llm"
 
+// Interface defining the structure of a test proposal from the AI
 interface TestProposal {
-  filename: string
-  testType?: "unit" | "e2e"
-  testContent: string
+  filename: string // Path to the test file
+  testType?: "unit" | "e2e" // Type of test to generate
+  testContent: string // The actual test code
   actions?: {
+    // Actions to take with the file
     action: "create" | "update" | "rename"
-    oldFilename?: string
+    oldFilename?: string // Used when renaming files
   }
 }
 
+// Label that triggers the test generation process when added to a PR
 export const TEST_GENERATION_LABEL = "agent-generate-tests"
 
+// Zod schema for validating the AI's decision about whether to generate tests
 const gatingSchema = z.object({
   decision: z.object({
     shouldGenerateTests: z.boolean(),
@@ -32,36 +37,61 @@ const gatingSchema = z.object({
   })
 })
 
+/**
+ * Parses the XML response from the AI model into structured test proposals
+ *
+ * @param xmlText - The XML string from the AI model
+ * @returns Array of parsed test proposals
+ */
 async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
+  // Extract the tests XML portion from the response
   const startTag = "<tests>"
   const endTag = "</tests>"
   const startIndex = xmlText.indexOf(startTag)
   const endIndex = xmlText.indexOf(endTag) + endTag.length
   if (startIndex === -1 || endIndex === -1) return []
+
+  // Parse the XML into a JavaScript object
   const xmlPortion = xmlText.slice(startIndex, endIndex)
   const parsed = await parseStringPromise(xmlPortion)
   const proposals: TestProposal[] = []
+
+  // Extract root element and validate structure
   const root = parsed.tests
   if (!root?.testProposals) return []
+
+  // Parse each test proposal
   const testProposalsArr = root.testProposals[0].proposal
   if (!Array.isArray(testProposalsArr)) return []
+
   for (const item of testProposalsArr) {
+    // Extract basic test information
     const filename = item.filename?.[0] ?? ""
     const testType = item.testType?.[0] ?? ""
     const testContent = item.testContent?.[0] ?? ""
+
+    // Parse action information
     const actionNode = item.actions?.[0]
     let action: "create" | "update" | "rename" = "create"
     let oldFilename: string | undefined
+
+    // Determine the action type
     if (actionNode?.action?.[0]) {
       const raw = actionNode.action[0]
       if (raw === "update" || raw === "rename" || raw === "create") {
         action = raw
       }
     }
+
+    // Get the old filename if this is a rename operation
     if (actionNode?.oldFilename?.[0]) {
       oldFilename = actionNode.oldFilename[0]
     }
+
+    // Skip if required fields are missing
     if (!filename || !testContent) continue
+
+    // Add the proposal to our results
     proposals.push({
       filename,
       testType: testType === "e2e" ? "e2e" : "unit",
@@ -72,14 +102,23 @@ async function parseTestXml(xmlText: string): Promise<TestProposal[]> {
       }
     })
   }
+
   return proposals
 }
 
+/**
+ * Finalizes test proposals by ensuring correct file extensions based on content
+ *
+ * @param proposals - Array of raw test proposals
+ * @param changedFiles - Information about files changed in the PR
+ * @returns Array of finalized test proposals
+ */
 function finalizeTestProposals(
   proposals: TestProposal[],
   changedFiles: PullRequestContextWithTests["changedFiles"]
 ): TestProposal[] {
   return proposals.map(proposal => {
+    // Determine if the test is for React-related code
     const reactRelated = changedFiles.some(file => {
       if (!file.content) return false
       return (
@@ -95,6 +134,8 @@ function finalizeTestProposals(
         file.filename.includes("app/")
       )
     })
+
+    // Ensure correct file extension based on content type
     if (reactRelated) {
       if (!proposal.filename.endsWith(".test.tsx")) {
         proposal.filename = proposal.filename.replace(
@@ -110,20 +151,30 @@ function finalizeTestProposals(
         )
       }
     }
+
     return proposal
   })
 }
 
+/**
+ * Generates test files based on changes in the PR
+ *
+ * @param context - Pull request context with test information
+ * @param recommendation - Optional recommendation from the gating step
+ * @returns Array of test proposals
+ */
 async function generateTestsForChanges(
   context: PullRequestContextWithTests,
   recommendation?: string
 ): Promise<TestProposal[]> {
   const { title, changedFiles, commitMessages, existingTestFiles } = context
 
+  // Format existing test files for the prompt
   const existingTestsPrompt = existingTestFiles
     .map(f => `Existing test file: ${f.filename}\n---\n${f.content}\n---\n`)
     .join("\n")
 
+  // Format changed files for the prompt
   const changedFilesPrompt = changedFiles
     .map(file => {
       if (file.excluded) {
@@ -133,6 +184,7 @@ async function generateTestsForChanges(
     })
     .join("\n---\n")
 
+  // Construct the prompt for the AI model
   const prompt = `
 You are an expert software developer specializing in writing tests for a Next.js codebase.
 
@@ -185,11 +237,14 @@ ONLY return the <tests> XML with proposals. Do not add extra commentary.
 `
 
   try {
+    // Get the configured LLM model and generate the tests
     const model = getLLMModel()
     const { text } = await generateText({
       model,
       prompt
     })
+
+    // Parse and finalize the test proposals
     const rawProposals = await parseTestXml(text)
     return finalizeTestProposals(rawProposals, changedFiles)
   } catch {
@@ -197,6 +252,14 @@ ONLY return the <tests> XML with proposals. Do not add extra commentary.
   }
 }
 
+/**
+ * Commits generated test files to the PR branch
+ *
+ * @param owner - Repository owner
+ * @param repo - Repository name
+ * @param branchName - Branch to commit to
+ * @param proposals - Array of test proposals to commit
+ */
 async function commitTestsToExistingBranch(
   owner: string,
   repo: string,
@@ -207,12 +270,14 @@ async function commitTestsToExistingBranch(
     const action = proposal.actions?.action ?? "create"
     const oldFilename = proposal.actions?.oldFilename
 
+    // Handle file renames
     if (
       action === "rename" &&
       oldFilename &&
       oldFilename !== proposal.filename
     ) {
       try {
+        // Delete the old file first
         const { data: oldFile } = await octokit.repos.getContent({
           owner,
           repo,
@@ -235,12 +300,15 @@ async function commitTestsToExistingBranch(
     }
 
     try {
+      // Check if the file already exists
       const { data: existingFile } = await octokit.repos.getContent({
         owner,
         repo,
         path: proposal.filename,
         ref: branchName
       })
+
+      // Create or update the file
       const contentBase64 = Buffer.from(proposal.testContent, "utf8").toString(
         "base64"
       )
@@ -256,6 +324,7 @@ async function commitTestsToExistingBranch(
       })
     } catch (error: any) {
       if (error.status === 404) {
+        // File doesn't exist, create it
         const contentBase64 = Buffer.from(
           proposal.testContent,
           "utf8"
@@ -275,6 +344,15 @@ async function commitTestsToExistingBranch(
   }
 }
 
+/**
+ * Updates the PR comment with the results of test generation
+ *
+ * @param owner - Repository owner
+ * @param repo - Repository name
+ * @param commentId - ID of the comment to update
+ * @param headRef - Branch name
+ * @param testProposals - Array of generated test proposals
+ */
 async function updateCommentWithResults(
   owner: string,
   repo: string,
@@ -296,9 +374,16 @@ ${testList}
   await updateComment(owner, repo, commentId, body)
 }
 
+/**
+ * Initial check to determine if test generation is needed
+ *
+ * @param context - Pull request context with test information
+ * @returns Decision object with whether to generate tests and why
+ */
 async function gatingStep(context: PullRequestContextWithTests) {
   const { title, changedFiles, commitMessages, existingTestFiles } = context
 
+  // Format existing tests for the prompt
   const existingTestsPrompt = existingTestFiles
     .map(
       f => `
@@ -310,6 +395,7 @@ ${f.content}
     )
     .join("\n")
 
+  // Format changed files for the prompt
   const changedFilesPrompt = changedFiles
     .map(file => {
       if (file.excluded) {
@@ -319,6 +405,7 @@ ${f.content}
     })
     .join("\n---\n")
 
+  // Construct the prompt for the AI model
   const prompt = `
 You are an expert in deciding if front-end tests are needed for these changes.
 
@@ -334,6 +421,7 @@ ${existingTestsPrompt}
 `
 
   try {
+    // Get the configured LLM model and generate the decision
     const model = getLLMModel()
     const result = await generateObject({
       model,
@@ -353,6 +441,12 @@ ${existingTestsPrompt}
   }
 }
 
+/**
+ * Main handler for the test generation process
+ * Coordinates the entire flow from decision to generation to commit
+ *
+ * @param context - Pull request context with test information
+ */
 export async function handleTestGeneration(
   context: PullRequestContextWithTests
 ) {
@@ -360,6 +454,7 @@ export async function handleTestGeneration(
   let commentId: number | undefined
 
   try {
+    // Create initial placeholder comment
     commentId = await createPlaceholderComment(
       owner,
       repo,
@@ -367,6 +462,7 @@ export async function handleTestGeneration(
       "🧪 AI Test Generation in progress..."
     )
 
+    // Check if we should generate tests
     const { shouldGenerate, reason, recommendation } = await gatingStep(context)
     if (!shouldGenerate) {
       await updateComment(
@@ -378,11 +474,13 @@ export async function handleTestGeneration(
       return
     }
 
+    // Generate and commit the tests
     const testProposals = await generateTestsForChanges(context, recommendation)
     if (testProposals.length > 0) {
       await commitTestsToExistingBranch(owner, repo, headRef, testProposals)
     }
 
+    // Update the comment with results
     await updateCommentWithResults(
       owner,
       repo,
@@ -390,8 +488,11 @@ export async function handleTestGeneration(
       headRef,
       testProposals
     )
+
+    // Remove the generation label
     await removeLabel(owner, repo, pullNumber, TEST_GENERATION_LABEL)
   } catch (err) {
+    console.error("Error in handleTestGeneration:", err)
     if (typeof commentId !== "undefined") {
       await updateComment(
         owner,
