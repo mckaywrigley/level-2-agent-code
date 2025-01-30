@@ -91,6 +91,10 @@ We have two categories of tests:
 If an existing test covers related functionality, update it instead of creating a new file. Return final content for each file you modify or create.
 If a React component is a Server Component, handle it asynchronously in tests. If it's a Client Component, test it normally.
 
+Important rule:
+1) If a file is a React component (client or server) or a Next.js page, the test filename MUST end in ".test.tsx".
+2) If it is a purely back-end or non-React utility file, the test filename MUST end in ".test.ts".
+
 Title: ${title}
 Commits:
 ${commitMessages.map(m => `- ${m}`).join("\n")}
