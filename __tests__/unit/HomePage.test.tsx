@@ -1,6 +1,6 @@
 import HomePage from "@/app/page"
 import "@testing-library/jest-dom"
-import { render, screen } from "@testing-library/react"
+import { render, screen, fireEvent } from "@testing-library/react"
 
 jest.mock("next/link", () => {
   return ({ children, href }: { children: React.ReactNode; href: string }) => (
@@ -8,12 +8,26 @@ jest.mock("next/link", () => {
   )
 })
 
-describe("HomePage (Server Component)", () => {
-  it("renders the main heading and link", async () => {
-    const Page = await HomePage()
-    render(Page)
+// Mock the alert function
+const mockAlert = jest.fn()
+window.alert = mockAlert
+
+describe("HomePage (Client Component)", () => {
+  it("renders the main heading and link", () => {
+    render(<HomePage />)
     
-    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent("Level 2 Coding Agent")
-    expect(screen.getByRole("link", { name: "About Page" })).toHaveAttribute("href", "/about")
+    expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(
+      "Welcome to the Level 2 Coding Agent Lesson"
+    )
+    expect(screen.getByRole("link", { name: "Go to the About Page" })).toHaveAttribute("href", "/about")
+  })
+
+  it("shows alert when button is clicked", () => {
+    render(<HomePage />)
+    
+    const button = screen.getByRole("button", { name: "Click me" })
+    fireEvent.click(button)
+    
+    expect(mockAlert).toHaveBeenCalledWith("You clicked me!")
   })
 })
